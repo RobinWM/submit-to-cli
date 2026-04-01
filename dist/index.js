@@ -40,11 +40,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const commander_1 = require("commander");
 const fs = __importStar(require("fs-extra"));
 const path = __importStar(require("path"));
-const inquirer_1 = __importDefault(require("inquirer"));
-const https = __importStar(require("https"));
 const http = __importStar(require("http"));
+const child_process_1 = require("child_process");
+const inquirer_1 = __importDefault(require("inquirer"));
 const CONFIG_PATH = path.join(process.env.HOME || '', '.config', 'submit-to-cli', 'config.json');
-const DEFAULT_BASE_URL = 'https://aidirs.org';
 async function loadConfig() {
     if (!(await fs.pathExists(CONFIG_PATH))) {
         throw new Error(`Not logged in. Run 'submit-to-cli login' first.`);
@@ -55,10 +54,109 @@ async function loadConfig() {
     }
     return config;
 }
+function openBrowser(url) {
+    const platform = process.platform;
+    if (platform === 'darwin') {
+        (0, child_process_1.execSync)(`open "${url}"`, { stdio: 'ignore' });
+    }
+    else if (platform === 'linux') {
+        (0, child_process_1.execSync)(`xdg-open "${url}"`, { stdio: 'ignore' });
+    }
+    else {
+        (0, child_process_1.execSync)(`start "" "${url}"`, { stdio: 'ignore' });
+    }
+}
+function waitForCallback(port) {
+    return new Promise((resolve, reject) => {
+        const server = http.createServer((req, res) => {
+            if (req.method !== 'GET') {
+                res.writeHead(404);
+                res.end();
+                return;
+            }
+            const url = new URL(req.url, `http://localhost:${port}`);
+            const token = url.searchParams.get('token');
+            const site = url.searchParams.get('site') || 'aidirs.org';
+            if (token) {
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+                res.end(`<html><body style="font-family:sans-serif;padding:40px;text-align:center;">
+          <h2 style="color:#22c55e;">✅ Login successful</h2>
+          <p style="color:#666;">Token saved. You can close this window.</p>
+          <script>window.close()</script>
+        </body></html>`);
+                server.close();
+                const baseUrl = site === 'backlinkdirs.com' ? 'https://backlinkdirs.com' : 'https://aidirs.org';
+                resolve({ token, baseUrl });
+            }
+            else {
+                const error = url.searchParams.get('error') || 'Unknown error';
+                res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+                res.end(`<html><body style="font-family:sans-serif;padding:40px;text-align:center;">
+          <h2 style="color:#ef4444;">❌ Login failed</h2>
+          <p style="color:#666;">${error}</p>
+        </body></html>`);
+                server.close();
+                reject(new Error(error));
+            }
+        });
+        server.listen(port, '127.0.0.1', () => { });
+        setTimeout(() => {
+            server.close();
+            reject(new Error('Login timeout (5 minutes). Please try again.'));
+        }, 5 * 60 * 1000);
+    });
+}
+function getAvailablePort(start) {
+    return new Promise((resolve) => {
+        const server = http.createServer();
+        server.listen(start, '127.0.0.1', () => {
+            const port = server.address().port;
+            server.close(() => resolve(port));
+        });
+        server.on('error', () => resolve(getAvailablePort(start + 1)));
+    });
+}
+async function login() {
+    const inq = inquirer_1.default.createPromptModule();
+    const { site } = await inq([
+        {
+            type: 'list',
+            name: 'site',
+            message: 'Which site do you want to login to?',
+            choices: [
+                { name: 'aidirs.org', value: 'aidirs.org' },
+                { name: 'backlinkdirs.com', value: 'backlinkdirs.com' },
+            ],
+        },
+    ]);
+    const authUrls = {
+        'aidirs.org': 'https://aidirs.org/auth/login',
+        'backlinkdirs.com': 'https://backlinkdirs.com/auth/login',
+    };
+    const port = await getAvailablePort(38492);
+    const callbackUrl = `http://localhost:${port}/callback`;
+    const authUrl = `${authUrls[site]}?callback=${encodeURIComponent(callbackUrl)}`;
+    console.log(`\n🔐 Opening browser to login to ${site}...`);
+    console.log(`   Waiting for callback on localhost:${port}\n`);
+    openBrowser(authUrl);
+    try {
+        const { token, baseUrl } = await waitForCallback(port);
+        const config = {
+            AIDIRS_TOKEN: token,
+            AIDIRS_BASE_URL: baseUrl,
+        };
+        await fs.ensureFile(CONFIG_PATH);
+        await fs.writeJson(CONFIG_PATH, config, { spaces: 2 });
+        console.log(`\n✅ Login saved to ${CONFIG_PATH}`);
+    }
+    catch (err) {
+        console.error(`\n❌ Login failed: ${err.message}`);
+        process.exit(1);
+    }
+}
 async function httpPost(baseUrl, token, endpoint, body) {
     const url = new URL(endpoint, baseUrl);
-    const isHttps = url.protocol === 'https:';
-    const httpMod = isHttps ? https : http;
+    const httpMod = url.protocol === 'https:' ? require('https') : require('http');
     return new Promise((resolve, reject) => {
         const data = JSON.stringify(body);
         const req = httpMod.request({
@@ -76,8 +174,7 @@ async function httpPost(baseUrl, token, endpoint, body) {
             res.on('data', (chunk) => { body += chunk; });
             res.on('end', () => {
                 try {
-                    const json = JSON.parse(body);
-                    resolve({ status: res.statusCode, data: json });
+                    resolve({ status: res.statusCode, data: JSON.parse(body) });
                 }
                 catch {
                     resolve({ status: res.statusCode, data: body });
@@ -88,40 +185,6 @@ async function httpPost(baseUrl, token, endpoint, body) {
         req.write(data);
         req.end();
     });
-}
-async function login() {
-    console.log('Logging in to aidirs.org...\n');
-    const inq = inquirer_1.default.createPromptModule();
-    const answers = await inq([
-        {
-            type: 'input',
-            name: 'AIDIRS_TOKEN',
-            message: 'Enter your AIDIRS_TOKEN:',
-            validate: (input) => input.trim().length > 0 ? true : 'Token cannot be empty',
-        },
-        {
-            type: 'input',
-            name: 'AIDIRS_BASE_URL',
-            message: 'Enter the API base URL:',
-            default: DEFAULT_BASE_URL,
-            validate: (input) => {
-                try {
-                    new URL(input);
-                    return true;
-                }
-                catch {
-                    return 'Please enter a valid URL';
-                }
-            },
-        },
-    ]);
-    const config = {
-        AIDIRS_TOKEN: String(answers.AIDIRS_TOKEN).trim(),
-        AIDIRS_BASE_URL: String(answers.AIDIRS_BASE_URL).trim().replace(/\/$/, ''),
-    };
-    await fs.ensureFile(CONFIG_PATH);
-    await fs.writeJson(CONFIG_PATH, config, { spaces: 2 });
-    console.log(`\n✅ Login saved to ${CONFIG_PATH}`);
 }
 async function submit(url) {
     const config = await loadConfig();
@@ -152,11 +215,11 @@ async function fetch(url) {
 const program = new commander_1.Command();
 program
     .name('submit-to-cli')
-    .description('CLI tool for submitting URLs to aidirs.org')
+    .description('CLI tool for submitting URLs to aidirs.org and backlinkdirs.com')
     .version('1.0.0');
 program
     .command('login')
-    .description('Login and save API token')
+    .description('Login via browser (supports aidirs.org and backlinkdirs.com)')
     .action(login);
 program
     .command('submit <url>')
