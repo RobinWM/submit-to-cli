@@ -1,6 +1,6 @@
 # submit-to-cli
 
-CLI tool for submitting URLs to [aidirs.org](https://aidirs.org).
+CLI tool for submitting URLs to [aidirs.org](https://aidirs.org) and [backlinkdirs.com](https://backlinkdirs.com).
 
 ## Installation
 
@@ -18,17 +18,11 @@ bash install.sh
 
 ## Setup
 
-First, log in with your API token:
-
 ```bash
 submit-to-cli login
 ```
 
-You'll be prompted for:
-- `DIRS_TOKEN` — your API token from aidirs.org
-- `DIRS_BASE_URL` — API base URL (defaults to `https://aidirs.org`)
-
-Config is saved to `~/.config/submit-to-cli/config.json`.
+Select the site, browser opens automatically, login and done. Token is auto-saved. If you don't have an API token yet, one will be created automatically.
 
 ## Usage
 
@@ -56,7 +50,7 @@ submit-to-cli --help
 
 | Command | Description |
 |---------|-------------|
-| `login` | Interactive login to save your API token |
+| `login` | Browser-based OAuth login (supports aidirs.org & backlinkdirs.com) |
 | `submit <url>` | Submit a URL to aidirs |
 | `fetch <url>` | Preview a URL without creating a record |
 | `--help` | Show help |
@@ -70,4 +64,14 @@ submit-to-cli --help
   "DIRS_TOKEN": "your-token-here",
   "DIRS_BASE_URL": "https://aidirs.org"
 }
+```
+
+## Environment Variables
+
+Config file takes priority. Environment variables serve as fallback:
+
+```bash
+export DIRS_TOKEN="your-token-here"
+export DIRS_BASE_URL="https://aidirs.org"
+submit-to-cli submit https://example.com
 ```
