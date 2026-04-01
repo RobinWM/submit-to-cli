@@ -25,8 +25,8 @@ submit-to-cli login
 ```
 
 You'll be prompted for:
-- `AIDIRS_TOKEN` — your API token from aidirs.org
-- `AIDIRS_BASE_URL` — API base URL (defaults to `https://aidirs.org`)
+- `DIRS_TOKEN` — your API token from aidirs.org
+- `DIRS_BASE_URL` — API base URL (defaults to `https://aidirs.org`)
 
 Config is saved to `~/.config/submit-to-cli/config.json`.
 
@@ -67,7 +67,7 @@ submit-to-cli --help
 
 ```json
 {
-  "AIDIRS_TOKEN": "your-token-here",
-  "AIDIRS_BASE_URL": "https://aidirs.org"
+  "DIRS_TOKEN": "your-token-here",
+  "DIRS_BASE_URL": "https://aidirs.org"
 }
 ```

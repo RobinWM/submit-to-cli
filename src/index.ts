@@ -10,8 +10,8 @@ import inquirer from 'inquirer';
 const CONFIG_PATH = path.join(process.env.HOME || '', '.config', 'submit-to-cli', 'config.json');
 
 interface Config {
-  AIDIRS_TOKEN: string;
-  AIDIRS_BASE_URL: string;
+  DIRS_TOKEN: string;
+  DIRS_BASE_URL: string;
 }
 
 async function loadConfig(): Promise<Config> {
@@ -19,8 +19,8 @@ async function loadConfig(): Promise<Config> {
     throw new Error(`Not logged in. Run 'submit-to-cli login' first.`);
   }
   const config = await fs.readJson(CONFIG_PATH);
-  if (!config.AIDIRS_TOKEN) {
-    throw new Error(`AIDIRS_TOKEN not found in config. Run 'submit-to-cli login' first.`);
+  if (!config.DIRS_TOKEN) {
+    throw new Error(`DIRS_TOKEN not found in config. Run 'submit-to-cli login' first.`);
   }
   return config;
 }
@@ -123,8 +123,8 @@ async function login() {
     const { token, baseUrl } = await waitForCallback(port);
 
     const config: Config = {
-      AIDIRS_TOKEN: token,
-      AIDIRS_BASE_URL: baseUrl,
+      DIRS_TOKEN: token,
+      DIRS_BASE_URL: baseUrl,
     };
 
     await fs.ensureFile(CONFIG_PATH);
@@ -171,9 +171,9 @@ async function httpPost(baseUrl: string, token: string, endpoint: string, body: 
 
 async function submit(url: string) {
   const config = await loadConfig();
-  console.log(`Submitting ${url} to ${config.AIDIRS_BASE_URL}...`);
+  console.log(`Submitting ${url} to ${config.DIRS_BASE_URL}...`);
   try {
-    const result = await httpPost(config.AIDIRS_BASE_URL, config.AIDIRS_TOKEN, '/api/submit', { link: url }) as any;
+    const result = await httpPost(config.DIRS_BASE_URL, config.DIRS_TOKEN, '/api/submit', { link: url }) as any;
     console.log(`Status: ${result.status}`);
     console.log('Response:', JSON.stringify(result.data, null, 2));
   } catch (err: any) {
@@ -184,9 +184,9 @@ async function submit(url: string) {
 
 async function fetch(url: string) {
   const config = await loadConfig();
-  console.log(`Fetching preview for ${url} from ${config.AIDIRS_BASE_URL}...`);
+  console.log(`Fetching preview for ${url} from ${config.DIRS_BASE_URL}...`);
   try {
-    const result = await httpPost(config.AIDIRS_BASE_URL, config.AIDIRS_TOKEN, '/api/fetch-website', { link: url }) as any;
+    const result = await httpPost(config.DIRS_BASE_URL, config.DIRS_TOKEN, '/api/fetch-website', { link: url }) as any;
     console.log(`Status: ${result.status}`);
     console.log('Response:', JSON.stringify(result.data, null, 2));
   } catch (err: any) {

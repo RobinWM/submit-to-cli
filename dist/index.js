@@ -49,8 +49,8 @@ async function loadConfig() {
         throw new Error(`Not logged in. Run 'submit-to-cli login' first.`);
     }
     const config = await fs.readJson(CONFIG_PATH);
-    if (!config.AIDIRS_TOKEN) {
-        throw new Error(`AIDIRS_TOKEN not found in config. Run 'submit-to-cli login' first.`);
+    if (!config.DIRS_TOKEN) {
+        throw new Error(`DIRS_TOKEN not found in config. Run 'submit-to-cli login' first.`);
     }
     return config;
 }
@@ -142,8 +142,8 @@ async function login() {
     try {
         const { token, baseUrl } = await waitForCallback(port);
         const config = {
-            AIDIRS_TOKEN: token,
-            AIDIRS_BASE_URL: baseUrl,
+            DIRS_TOKEN: token,
+            DIRS_BASE_URL: baseUrl,
         };
         await fs.ensureFile(CONFIG_PATH);
         await fs.writeJson(CONFIG_PATH, config, { spaces: 2 });
@@ -188,9 +188,9 @@ async function httpPost(baseUrl, token, endpoint, body) {
 }
 async function submit(url) {
     const config = await loadConfig();
-    console.log(`Submitting ${url} to ${config.AIDIRS_BASE_URL}...`);
+    console.log(`Submitting ${url} to ${config.DIRS_BASE_URL}...`);
     try {
-        const result = await httpPost(config.AIDIRS_BASE_URL, config.AIDIRS_TOKEN, '/api/submit', { link: url });
+        const result = await httpPost(config.DIRS_BASE_URL, config.DIRS_TOKEN, '/api/submit', { link: url });
         console.log(`Status: ${result.status}`);
         console.log('Response:', JSON.stringify(result.data, null, 2));
     }
@@ -201,9 +201,9 @@ async function submit(url) {
 }
 async function fetch(url) {
     const config = await loadConfig();
-    console.log(`Fetching preview for ${url} from ${config.AIDIRS_BASE_URL}...`);
+    console.log(`Fetching preview for ${url} from ${config.DIRS_BASE_URL}...`);
     try {
-        const result = await httpPost(config.AIDIRS_BASE_URL, config.AIDIRS_TOKEN, '/api/fetch-website', { link: url });
+        const result = await httpPost(config.DIRS_BASE_URL, config.DIRS_TOKEN, '/api/fetch-website', { link: url });
         console.log(`Status: ${result.status}`);
         console.log('Response:', JSON.stringify(result.data, null, 2));
     }

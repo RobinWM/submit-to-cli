@@ -35,8 +35,8 @@ submit-to-cli login
 
 也可通过环境变量覆盖：
 
-- `AIDIRS_BASE_URL`
-- `AIDIRS_TOKEN`
+- `DIRS_BASE_URL`
+- `DIRS_TOKEN`
 
 ### 2. Submit — 提交 URL
 
@@ -83,8 +83,8 @@ submit-to-cli fetch <url>
 如需在其他脚本中调用，使用环境变量：
 
 ```bash
-export AIDIRS_BASE_URL="https://aidirs.org"
-export AIDIRS_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+export DIRS_BASE_URL="https://aidirs.org"
+export DIRS_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 submit-to-cli submit https://example.com
 ```
 
@@ -92,8 +92,8 @@ submit-to-cli submit https://example.com
 
 | 来源 | 键 | 说明 |
 |------|----|------|
-| 环境变量 | `AIDIRS_BASE_URL` | API Base URL（优先级最高） |
-| 环境变量 | `AIDIRS_TOKEN` | Bearer Token |
+| 环境变量 | `DIRS_BASE_URL` | API Base URL（优先级最高） |
+| 环境变量 | `DIRS_TOKEN` | Bearer Token |
 | 配置文件 | `~/.config/submit-to-cli/config.json` | 本地存储的凭证 |
 | CLI 默认 | Base URL | `https://aidirs.org` |
 | CLI 默认 | Token | 需通过 login 或环境变量提供 |
@@ -102,7 +102,7 @@ submit-to-cli submit https://example.com
 
 ```json
 {
-  "AIDIRS_BASE_URL": "https://aidirs.org",
-  "AIDIRS_TOKEN": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  "DIRS_BASE_URL": "https://aidirs.org",
+  "DIRS_TOKEN": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 }
 ```
