@@ -18,6 +18,8 @@ bash install.sh
 
 ## 登录
 
+> **注意：** 提交 URL 需要订阅计划。
+
 ```bash
 submit-to-cli login
 ```

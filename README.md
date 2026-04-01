@@ -18,6 +18,8 @@ bash install.sh
 
 ## Setup
 
+> **Note:** Submitting URLs requires an active subscription plan.
+
 ```bash
 submit-to-cli login
 ```
