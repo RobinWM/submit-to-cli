@@ -45,61 +45,17 @@ const https = __importStar(require("https"));
 const child_process_1 = require("child_process");
 const crypto_1 = require("crypto");
 const inquirer_1 = __importDefault(require("inquirer"));
+const errors_1 = require("./lib/errors");
+const config_1 = require("./lib/config");
+const output_1 = require("./lib/output");
+const sites_1 = require("./lib/sites");
 const CLI_VERSION = require('../package.json').version;
-const DEFAULT_SITE = 'aidirs.org';
-const SUPPORTED_SITES = ['aidirs.org', 'backlinkdirs.com'];
-const SITE_BASE_URLS = {
-    'aidirs.org': 'https://aidirs.org',
-    'backlinkdirs.com': 'https://backlinkdirs.com',
-};
-const SITE_AUTH_URLS = {
-    'aidirs.org': 'https://aidirs.org/api/cli/callback',
-    'backlinkdirs.com': 'https://backlinkdirs.com/api/cli/callback',
-};
 const RELEASE_REPO = 'RobinWM/ship-cli';
 const RELEASE_API_URL = `https://api.github.com/repos/${RELEASE_REPO}/releases/latest`;
 const UPDATE_CHECK_PATH = path.join(process.env.HOME || '', '.config', 'ship', 'update-check.json');
 const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 60000;
 const MAX_RETRIES = 2;
-const EXIT_CODES = {
-    GENERAL_ERROR: 1,
-    AUTH_ERROR: 2,
-    NETWORK_ERROR: 3,
-    API_ERROR: 4,
-};
-const CONFIG_PATH = path.join(process.env.HOME || '', '.config', 'ship', 'config.json');
-class CliError extends Error {
-    constructor(message, exitCode = EXIT_CODES.GENERAL_ERROR) {
-        super(message);
-        this.exitCode = exitCode;
-        this.name = 'CliError';
-    }
-}
-class HttpError extends CliError {
-    constructor(message, status, data, exitCode = EXIT_CODES.API_ERROR) {
-        super(message, exitCode);
-        this.status = status;
-        this.data = data;
-        this.name = 'HttpError';
-    }
-}
-function normalizeSite(site) {
-    if (!site)
-        return DEFAULT_SITE;
-    if (SUPPORTED_SITES.includes(site)) {
-        return site;
-    }
-    throw new CliError(`Unsupported site '${site}'. Use one of: ${SUPPORTED_SITES.join(', ')}`, EXIT_CODES.GENERAL_ERROR);
-}
-function normalizeBaseUrl(baseUrl) {
-    return baseUrl.replace(/\/$/, '');
-}
-function getErrorMessage(error) {
-    if (error instanceof Error)
-        return error.message;
-    return String(error);
-}
 function parseJsonSafely(body) {
     try {
         return JSON.parse(body);
@@ -107,13 +63,6 @@ function parseJsonSafely(body) {
     catch {
         return body;
     }
-}
-function getSiteFromBaseUrl(baseUrl) {
-    if (!baseUrl)
-        return DEFAULT_SITE;
-    const normalized = normalizeBaseUrl(baseUrl);
-    const matchedEntry = Object.entries(SITE_BASE_URLS).find(([, value]) => value === normalized);
-    return matchedEntry?.[0] ?? DEFAULT_SITE;
 }
 function compareVersions(left, right) {
     const parse = (value) => value.replace(/^v/, '').split('.').map((part) => Number.parseInt(part, 10) || 0);
@@ -156,50 +105,6 @@ function getReleaseAssetUrl(assets) {
         return undefined;
     return assets.find((asset) => asset.name === assetName)?.browser_download_url;
 }
-async function readConfigFile() {
-    if (!(await fs.pathExists(CONFIG_PATH))) {
-        return null;
-    }
-    const rawConfig = (await fs.readJson(CONFIG_PATH));
-    if (rawConfig.sites && rawConfig.currentSite) {
-        return {
-            currentSite: normalizeSite(rawConfig.currentSite),
-            sites: rawConfig.sites,
-        };
-    }
-    const legacyToken = rawConfig.DIRS_TOKEN;
-    if (!legacyToken) {
-        return null;
-    }
-    const legacySite = getSiteFromBaseUrl(rawConfig.DIRS_BASE_URL);
-    return {
-        currentSite: legacySite,
-        sites: {
-            [legacySite]: {
-                token: legacyToken,
-                baseUrl: SITE_BASE_URLS[legacySite],
-            },
-        },
-    };
-}
-async function writeConfig(config) {
-    await fs.ensureFile(CONFIG_PATH);
-    await fs.writeJson(CONFIG_PATH, config, { spaces: 2 });
-}
-async function loadConfig(options = {}) {
-    const envToken = process.env.DIRS_TOKEN;
-    const envBaseUrl = process.env.DIRS_BASE_URL;
-    const requestedSite = options.site ? normalizeSite(options.site) : undefined;
-    const fileConfig = await readConfigFile();
-    const site = requestedSite ?? fileConfig?.currentSite ?? getSiteFromBaseUrl(envBaseUrl);
-    const siteFromFile = fileConfig?.sites?.[site];
-    const token = siteFromFile?.token || envToken || '';
-    const baseUrl = normalizeBaseUrl(siteFromFile?.baseUrl || envBaseUrl || SITE_BASE_URLS[site]);
-    if (!token) {
-        throw new CliError(`No token configured for ${site}. Run 'ship login --site ${site}' first or set DIRS_TOKEN.`, EXIT_CODES.AUTH_ERROR);
-    }
-    return { site, token, baseUrl };
-}
 function tryOpen(command, args) {
     try {
         (0, child_process_1.execFileSync)(command, args, { stdio: 'ignore' });
@@ -214,21 +119,21 @@ function openBrowser(url) {
     if (platform === 'darwin') {
         if (tryOpen('open', [url]))
             return;
-        throw new CliError('Failed to open browser with macOS open command.');
+        throw new errors_1.CliError('Failed to open browser with macOS open command.');
     }
     if (platform === 'linux') {
         if (tryOpen('xdg-open', [url]))
             return;
-        throw new CliError('Failed to open browser with xdg-open.');
+        throw new errors_1.CliError('Failed to open browser with xdg-open.');
     }
     if (platform === 'win32') {
         if (tryOpen('rundll32', ['url.dll,FileProtocolHandler', url]))
             return;
         if (tryOpen('cmd', ['/c', 'start', '', url]))
             return;
-        throw new CliError('Failed to open browser on Windows. Try opening the login URL manually.');
+        throw new errors_1.CliError('Failed to open browser on Windows. Try opening the login URL manually.');
     }
-    throw new CliError(`Unsupported platform: ${platform}`);
+    throw new errors_1.CliError(`Unsupported platform: ${platform}`);
 }
 function waitForCallback(port, expectedSite, expectedState) {
     return new Promise((resolve, reject) => {
@@ -247,18 +152,18 @@ function waitForCallback(port, expectedSite, expectedState) {
             }
             const requestUrl = new URL(req.url || '/', `http://localhost:${port}`);
             const token = requestUrl.searchParams.get('token');
-            const site = normalizeSite(requestUrl.searchParams.get('site') || expectedSite);
+            const site = (0, sites_1.normalizeSite)(requestUrl.searchParams.get('site') || expectedSite);
             const state = requestUrl.searchParams.get('state');
             if (state !== expectedState) {
                 res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
                 res.end('<html><body><h2>Invalid login state</h2></body></html>');
-                finish(() => reject(new CliError('Login failed: invalid callback state.', EXIT_CODES.AUTH_ERROR)));
+                finish(() => reject(new errors_1.CliError('Login failed: invalid callback state.', errors_1.EXIT_CODES.AUTH_ERROR)));
                 return;
             }
             if (site !== expectedSite) {
                 res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
                 res.end('<html><body><h2>Login site mismatch</h2></body></html>');
-                finish(() => reject(new CliError('Login failed: callback site mismatch.', EXIT_CODES.AUTH_ERROR)));
+                finish(() => reject(new errors_1.CliError('Login failed: callback site mismatch.', errors_1.EXIT_CODES.AUTH_ERROR)));
                 return;
             }
             if (token) {
@@ -277,11 +182,11 @@ function waitForCallback(port, expectedSite, expectedState) {
         <h2 style="color:#ef4444;">❌ Login failed</h2>
         <p style="color:#666;">${error}</p>
       </body></html>`);
-            finish(() => reject(new CliError(error, EXIT_CODES.AUTH_ERROR)));
+            finish(() => reject(new errors_1.CliError(error, errors_1.EXIT_CODES.AUTH_ERROR)));
         });
         server.listen(port, '127.0.0.1');
         setTimeout(() => {
-            finish(() => reject(new CliError('Login timeout (5 minutes). Please try again.', EXIT_CODES.AUTH_ERROR)));
+            finish(() => reject(new errors_1.CliError('Login timeout (5 minutes). Please try again.', errors_1.EXIT_CODES.AUTH_ERROR)));
         }, 5 * 60 * 1000);
     });
 }
@@ -302,29 +207,12 @@ function validateUrl(input) {
         parsed = new URL(input);
     }
     catch {
-        throw new CliError(`Invalid URL: ${input}`, EXIT_CODES.GENERAL_ERROR);
+        throw new errors_1.CliError(`Invalid URL: ${input}`, errors_1.EXIT_CODES.GENERAL_ERROR);
     }
     if (!['http:', 'https:'].includes(parsed.protocol)) {
-        throw new CliError(`Unsupported URL protocol: ${parsed.protocol}`, EXIT_CODES.GENERAL_ERROR);
+        throw new errors_1.CliError(`Unsupported URL protocol: ${parsed.protocol}`, errors_1.EXIT_CODES.GENERAL_ERROR);
     }
     return parsed.toString();
-}
-async function saveSiteConfig(site, token) {
-    const existing = (await readConfigFile()) ?? {
-        currentSite: site,
-        sites: {},
-    };
-    const nextConfig = {
-        currentSite: site,
-        sites: {
-            ...existing.sites,
-            [site]: {
-                token,
-                baseUrl: SITE_BASE_URLS[site],
-            },
-        },
-    };
-    await writeConfig(nextConfig);
 }
 async function promptForSite() {
     const inq = inquirer_1.default.createPromptModule();
@@ -333,7 +221,7 @@ async function promptForSite() {
             type: 'list',
             name: 'site',
             message: 'Which site do you want to login to?',
-            choices: SUPPORTED_SITES.map((value) => ({ name: value, value })),
+            choices: sites_1.SUPPORTED_SITES.map((value) => ({ name: value, value })),
         },
     ]);
     return site;
@@ -361,19 +249,19 @@ async function httpGetJson(urlString) {
                 const parsed = parseJsonSafely(responseBody);
                 const status = res.statusCode ?? 500;
                 if (status < 200 || status >= 300) {
-                    reject(new HttpError(`Request failed with status ${status}`, status, parsed));
+                    reject(new errors_1.HttpError(`Request failed with status ${status}`, status, parsed));
                     return;
                 }
                 resolve(parsed);
             });
         });
         req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-            req.destroy(new CliError(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, EXIT_CODES.NETWORK_ERROR));
+            req.destroy(new errors_1.CliError(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, errors_1.EXIT_CODES.NETWORK_ERROR));
         });
         req.on('error', (error) => {
-            reject(error instanceof CliError
+            reject(error instanceof errors_1.CliError
                 ? error
-                : new CliError(`Network request failed: ${getErrorMessage(error)}`, EXIT_CODES.NETWORK_ERROR));
+                : new errors_1.CliError(`Network request failed: ${(0, errors_1.getErrorMessage)(error)}`, errors_1.EXIT_CODES.NETWORK_ERROR));
         });
         req.end();
     });
@@ -402,7 +290,7 @@ async function downloadToFile(urlString, destination) {
             if ((res.statusCode ?? 500) < 200 || (res.statusCode ?? 500) >= 300) {
                 fileStream.close();
                 fs.remove(destination).catch(() => undefined).finally(() => {
-                    reject(new CliError(`Download failed with status ${res.statusCode ?? 500}`, EXIT_CODES.NETWORK_ERROR));
+                    reject(new errors_1.CliError(`Download failed with status ${res.statusCode ?? 500}`, errors_1.EXIT_CODES.NETWORK_ERROR));
                 });
                 return;
             }
@@ -413,14 +301,14 @@ async function downloadToFile(urlString, destination) {
             });
         });
         req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-            req.destroy(new CliError(`Download timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, EXIT_CODES.NETWORK_ERROR));
+            req.destroy(new errors_1.CliError(`Download timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, errors_1.EXIT_CODES.NETWORK_ERROR));
         });
         req.on('error', (error) => {
             fileStream.close();
             fs.remove(destination).catch(() => undefined).finally(() => {
-                reject(error instanceof CliError
+                reject(error instanceof errors_1.CliError
                     ? error
-                    : new CliError(`Download failed: ${getErrorMessage(error)}`, EXIT_CODES.NETWORK_ERROR));
+                    : new errors_1.CliError(`Download failed: ${(0, errors_1.getErrorMessage)(error)}`, errors_1.EXIT_CODES.NETWORK_ERROR));
             });
         });
     });
@@ -499,13 +387,13 @@ async function maybeNotifyUpdate(options = {}) {
 async function login(options) {
     await maybeNotifyUpdate();
     const site = options.site
-        ? normalizeSite(options.site)
+        ? (0, sites_1.normalizeSite)(options.site)
         : await promptForSite();
     const port = await getAvailablePort(38492);
     const callbackUrl = `http://localhost:${port}/callback`;
     const state = (0, crypto_1.randomBytes)(24).toString('hex');
     const callbackWithState = `${callbackUrl}?state=${encodeURIComponent(state)}`;
-    const authUrl = `${SITE_AUTH_URLS[site]}?callback=${encodeURIComponent(callbackWithState)}`;
+    const authUrl = `${sites_1.SITE_AUTH_URLS[site]}?callback=${encodeURIComponent(callbackWithState)}`;
     console.log(`\n🔐 Opening browser to login to ${site}...`);
     console.log(`   Waiting for callback on localhost:${port}\n`);
     try {
@@ -515,16 +403,16 @@ async function login(options) {
         console.error(`\n❌ Failed to open browser automatically.`);
         console.error(`Open this URL manually:`);
         console.error(authUrl);
-        process.exit(error instanceof CliError ? error.exitCode : EXIT_CODES.AUTH_ERROR);
+        process.exit(error instanceof errors_1.CliError ? error.exitCode : errors_1.EXIT_CODES.AUTH_ERROR);
     }
     try {
         const { token } = await waitForCallback(port, site, state);
-        await saveSiteConfig(site, token);
+        await (0, config_1.saveSiteConfig)(site, token);
         console.log(`\n✅ Login successful`);
     }
     catch (error) {
-        console.error(`\n❌ Login failed: ${getErrorMessage(error)}`);
-        process.exit(error instanceof CliError ? error.exitCode : EXIT_CODES.AUTH_ERROR);
+        console.error(`\n❌ Login failed: ${(0, errors_1.getErrorMessage)(error)}`);
+        process.exit(error instanceof errors_1.CliError ? error.exitCode : errors_1.EXIT_CODES.AUTH_ERROR);
     }
 }
 async function httpPost(baseUrl, token, endpoint, body) {
@@ -554,73 +442,32 @@ async function httpPost(baseUrl, token, endpoint, body) {
                         const parsed = parseJsonSafely(responseBody);
                         const status = res.statusCode ?? 500;
                         if (status < 200 || status >= 300) {
-                            reject(new HttpError(`Request failed with status ${status}`, status, parsed, status === 401 || status === 403 ? EXIT_CODES.AUTH_ERROR : EXIT_CODES.API_ERROR));
+                            reject(new errors_1.HttpError(`Request failed with status ${status}`, status, parsed, status === 401 || status === 403 ? errors_1.EXIT_CODES.AUTH_ERROR : errors_1.EXIT_CODES.API_ERROR));
                             return;
                         }
                         resolve({ status, data: parsed });
                     });
                 });
                 req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-                    req.destroy(new CliError(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, EXIT_CODES.NETWORK_ERROR));
+                    req.destroy(new errors_1.CliError(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, errors_1.EXIT_CODES.NETWORK_ERROR));
                 });
                 req.on('error', (error) => {
-                    reject(error instanceof CliError
+                    reject(error instanceof errors_1.CliError
                         ? error
-                        : new CliError(`Network request failed: ${getErrorMessage(error)}`, EXIT_CODES.NETWORK_ERROR));
+                        : new errors_1.CliError(`Network request failed: ${(0, errors_1.getErrorMessage)(error)}`, errors_1.EXIT_CODES.NETWORK_ERROR));
                 });
                 req.write(data);
                 req.end();
             });
         }
         catch (error) {
-            const shouldRetry = attempt < MAX_RETRIES && error instanceof CliError && error.exitCode === EXIT_CODES.NETWORK_ERROR;
+            const shouldRetry = attempt < MAX_RETRIES && error instanceof errors_1.CliError && error.exitCode === errors_1.EXIT_CODES.NETWORK_ERROR;
             if (!shouldRetry) {
                 throw error;
             }
         }
     }
-    throw new CliError('Request failed after retries.', EXIT_CODES.NETWORK_ERROR);
-}
-function printJson(value) {
-    console.log(JSON.stringify(value, null, 2));
-}
-function printResult(result, options) {
-    if (options.json) {
-        printJson({ success: true, status: result.status, data: result.data });
-        return;
-    }
-    if (options.quiet) {
-        if (typeof result.data === 'string') {
-            console.log(result.data);
-            return;
-        }
-        printJson(result.data);
-        return;
-    }
-    console.log(`Status: ${result.status}`);
-    console.log('Response:', JSON.stringify(result.data, null, 2));
-}
-function printCommandError(error, options) {
-    if (options.json) {
-        const exitCode = error instanceof CliError ? error.exitCode : EXIT_CODES.GENERAL_ERROR;
-        const payload = {
-            success: false,
-            error: getErrorMessage(error),
-            exitCode,
-        };
-        if (error instanceof HttpError) {
-            payload.status = error.status;
-            payload.data = error.data;
-        }
-        printJson(payload);
-    }
-    else {
-        console.error(`❌ Error: ${getErrorMessage(error)}`);
-        if (error instanceof HttpError && error.data) {
-            console.error(JSON.stringify(error.data, null, 2));
-        }
-    }
-    process.exit(error instanceof CliError ? error.exitCode : EXIT_CODES.GENERAL_ERROR);
+    throw new errors_1.CliError('Request failed after retries.', errors_1.EXIT_CODES.NETWORK_ERROR);
 }
 async function showVersion(options) {
     try {
@@ -631,7 +478,7 @@ async function showVersion(options) {
             payload.updateAvailable = compareVersions(latest.version, CLI_VERSION) > 0;
         }
         if (options.json) {
-            printJson(payload);
+            (0, output_1.printJson)(payload);
             return;
         }
         console.log(`ship v${CLI_VERSION}`);
@@ -643,7 +490,7 @@ async function showVersion(options) {
         }
     }
     catch (error) {
-        printCommandError(error, { json: options.json });
+        (0, output_1.printCommandError)(error, { json: options.json });
     }
 }
 async function selfUpdate(options) {
@@ -652,7 +499,7 @@ async function selfUpdate(options) {
         const runtimePlatform = process.env.TEST_SUBMIT_DIR_PLATFORM || process.platform;
         if (compareVersions(latest.version, CLI_VERSION) <= 0) {
             if (options.json) {
-                printJson({ success: true, updated: false, current: CLI_VERSION, latest: latest.version });
+                (0, output_1.printJson)({ success: true, updated: false, current: CLI_VERSION, latest: latest.version });
             }
             else {
                 console.log(`Already up to date (v${CLI_VERSION}).`);
@@ -660,10 +507,10 @@ async function selfUpdate(options) {
             return;
         }
         if (runtimePlatform === 'win32') {
-            throw new CliError(`Self-update is not supported on Windows yet. Download v${latest.version} manually from https://github.com/${RELEASE_REPO}/releases/latest`);
+            throw new errors_1.CliError(`Self-update is not supported on Windows yet. Download v${latest.version} manually from https://github.com/${RELEASE_REPO}/releases/latest`);
         }
         if (!latest.downloadUrl) {
-            throw new CliError(`No downloadable asset found for ${process.platform}/${process.arch}.`);
+            throw new errors_1.CliError(`No downloadable asset found for ${process.platform}/${process.arch}.`);
         }
         const executablePath = getExecutablePath();
         const tempPath = `${executablePath}.download`;
@@ -676,44 +523,44 @@ async function selfUpdate(options) {
             downloadUrl: latest.downloadUrl,
         });
         if (options.json) {
-            printJson({ success: true, updated: true, previous: CLI_VERSION, current: latest.version });
+            (0, output_1.printJson)({ success: true, updated: true, previous: CLI_VERSION, current: latest.version });
         }
         else {
             console.log(`Updated ship from v${CLI_VERSION} to v${latest.version}.`);
         }
     }
     catch (error) {
-        printCommandError(error, { json: options.json });
+        (0, output_1.printCommandError)(error, { json: options.json });
     }
 }
 async function submit(targetUrl, options) {
     try {
         await maybeNotifyUpdate({ json: options.json, quiet: options.quiet });
         const validUrl = validateUrl(targetUrl);
-        const config = await loadConfig({ site: options.site });
+        const config = await (0, config_1.loadConfig)({ site: options.site });
         if (!options.json && !options.quiet) {
             console.log(`Submitting ${validUrl} to ${config.baseUrl}...`);
         }
         const result = await httpPost(config.baseUrl, config.token, '/api/submit', { link: validUrl });
-        printResult(result, options);
+        (0, output_1.printResult)(result, options);
     }
     catch (error) {
-        printCommandError(error, options);
+        (0, output_1.printCommandError)(error, options);
     }
 }
 async function fetchPreview(targetUrl, options) {
     try {
         await maybeNotifyUpdate({ json: options.json, quiet: options.quiet });
         const validUrl = validateUrl(targetUrl);
-        const config = await loadConfig({ site: options.site });
+        const config = await (0, config_1.loadConfig)({ site: options.site });
         if (!options.json && !options.quiet) {
             console.log(`Fetching preview for ${validUrl} from ${config.baseUrl}...`);
         }
         const result = await httpPost(config.baseUrl, config.token, '/api/fetch-website', { link: validUrl });
-        printResult(result, options);
+        (0, output_1.printResult)(result, options);
     }
     catch (error) {
-        printCommandError(error, options);
+        (0, output_1.printCommandError)(error, options);
     }
 }
 const program = new commander_1.Command();
@@ -724,19 +571,19 @@ program
 program
     .command('login')
     .description('Login via browser (supports aidirs.org and backlinkdirs.com)')
-    .option('--site <site>', `Site to login to (${SUPPORTED_SITES.join(', ')})`)
+    .option('--site <site>', `Site to login to (${sites_1.SUPPORTED_SITES.join(', ')})`)
     .action(login);
 program
     .command('submit <url>')
     .description('Submit a URL to the selected site')
-    .option('--site <site>', `Override configured site (${SUPPORTED_SITES.join(', ')})`)
+    .option('--site <site>', `Override configured site (${sites_1.SUPPORTED_SITES.join(', ')})`)
     .option('--json', 'Print machine-readable JSON output')
     .option('--quiet', 'Print only response payload')
     .action(submit);
 program
     .command('fetch <url>')
     .description('Preview a URL without creating a record')
-    .option('--site <site>', `Override configured site (${SUPPORTED_SITES.join(', ')})`)
+    .option('--site <site>', `Override configured site (${sites_1.SUPPORTED_SITES.join(', ')})`)
     .option('--json', 'Print machine-readable JSON output')
     .option('--quiet', 'Print only response payload')
     .action(fetchPreview);

@@ -8,22 +8,12 @@ import * as https from 'https';
 import { execFileSync } from 'child_process';
 import { randomBytes } from 'crypto';
 import inquirer from 'inquirer';
+import { CliError, EXIT_CODES, getErrorMessage, HttpError } from './lib/errors';
+import { CONFIG_PATH, loadConfig, saveSiteConfig } from './lib/config';
+import { CommandOutputOptions, HttpResponse, printCommandError, printJson, printResult } from './lib/output';
+import { DEFAULT_SITE, getSiteFromBaseUrl, normalizeBaseUrl, normalizeSite, SITE_AUTH_URLS, SITE_BASE_URLS, SUPPORTED_SITES, SupportedSite } from './lib/sites';
 
 const CLI_VERSION = require('../package.json').version as string;
-const DEFAULT_SITE = 'aidirs.org';
-const SUPPORTED_SITES = ['aidirs.org', 'backlinkdirs.com'] as const;
-type SupportedSite = (typeof SUPPORTED_SITES)[number];
-
-const SITE_BASE_URLS: Record<SupportedSite, string> = {
-  'aidirs.org': 'https://aidirs.org',
-  'backlinkdirs.com': 'https://backlinkdirs.com',
-};
-
-const SITE_AUTH_URLS: Record<SupportedSite, string> = {
-  'aidirs.org': 'https://aidirs.org/api/cli/callback',
-  'backlinkdirs.com': 'https://backlinkdirs.com/api/cli/callback',
-};
-
 const RELEASE_REPO = 'RobinWM/ship-cli';
 const RELEASE_API_URL = `https://api.github.com/repos/${RELEASE_REPO}/releases/latest`;
 const UPDATE_CHECK_PATH = path.join(process.env.HOME || '', '.config', 'ship', 'update-check.json');
@@ -31,49 +21,12 @@ const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 2;
 
-const EXIT_CODES = {
-  GENERAL_ERROR: 1,
-  AUTH_ERROR: 2,
-  NETWORK_ERROR: 3,
-  API_ERROR: 4,
-} as const;
 
-const CONFIG_PATH = path.join(process.env.HOME || '', '.config', 'ship', 'config.json');
 
-interface LegacyConfig {
-  DIRS_TOKEN?: string;
-  DIRS_BASE_URL?: string;
-}
 
-interface SiteConfig {
-  token: string;
-  baseUrl: string;
-}
 
-interface Config {
-  currentSite: SupportedSite;
-  sites: Partial<Record<SupportedSite, SiteConfig>>;
-}
 
-interface LoadConfigOptions {
-  site?: string;
-}
 
-interface LoadedConfig {
-  site: SupportedSite;
-  token: string;
-  baseUrl: string;
-}
-
-interface HttpResponse<T = unknown> {
-  status: number;
-  data: T;
-}
-
-interface CommandOutputOptions {
-  json?: boolean;
-  quiet?: boolean;
-}
 
 interface UpdateCheckCache {
   checkedAt: string;
@@ -92,49 +45,10 @@ interface LatestReleaseInfo {
   assets: ReleaseAsset[];
 }
 
-class CliError extends Error {
-  constructor(
-    message: string,
-    public readonly exitCode: number = EXIT_CODES.GENERAL_ERROR,
-  ) {
-    super(message);
-    this.name = 'CliError';
-  }
-}
 
-class HttpError extends CliError {
-  constructor(
-    message: string,
-    public readonly status: number,
-    public readonly data: unknown,
-    exitCode: number = EXIT_CODES.API_ERROR,
-  ) {
-    super(message, exitCode);
-    this.name = 'HttpError';
-  }
-}
 
-function normalizeSite(site: string | undefined): SupportedSite {
-  if (!site) return DEFAULT_SITE;
 
-  if ((SUPPORTED_SITES as readonly string[]).includes(site)) {
-    return site as SupportedSite;
-  }
 
-  throw new CliError(
-    `Unsupported site '${site}'. Use one of: ${SUPPORTED_SITES.join(', ')}`,
-    EXIT_CODES.GENERAL_ERROR,
-  );
-}
-
-function normalizeBaseUrl(baseUrl: string): string {
-  return baseUrl.replace(/\/$/, '');
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
 
 function parseJsonSafely(body: string): unknown {
   try {
@@ -144,13 +58,6 @@ function parseJsonSafely(body: string): unknown {
   }
 }
 
-function getSiteFromBaseUrl(baseUrl?: string): SupportedSite {
-  if (!baseUrl) return DEFAULT_SITE;
-
-  const normalized = normalizeBaseUrl(baseUrl);
-  const matchedEntry = Object.entries(SITE_BASE_URLS).find(([, value]) => value === normalized);
-  return (matchedEntry?.[0] as SupportedSite | undefined) ?? DEFAULT_SITE;
-}
 
 function compareVersions(left: string, right: string): number {
   const parse = (value: string) => value.replace(/^v/, '').split('.').map((part) => Number.parseInt(part, 10) || 0);
@@ -195,63 +102,8 @@ function getReleaseAssetUrl(assets: ReleaseAsset[]): string | undefined {
   return assets.find((asset) => asset.name === assetName)?.browser_download_url;
 }
 
-async function readConfigFile(): Promise<Config | null> {
-  if (!(await fs.pathExists(CONFIG_PATH))) {
-    return null;
-  }
 
-  const rawConfig = (await fs.readJson(CONFIG_PATH)) as Partial<Config & LegacyConfig>;
 
-  if (rawConfig.sites && rawConfig.currentSite) {
-    return {
-      currentSite: normalizeSite(rawConfig.currentSite),
-      sites: rawConfig.sites,
-    };
-  }
-
-  const legacyToken = rawConfig.DIRS_TOKEN;
-  if (!legacyToken) {
-    return null;
-  }
-
-  const legacySite = getSiteFromBaseUrl(rawConfig.DIRS_BASE_URL);
-  return {
-    currentSite: legacySite,
-    sites: {
-      [legacySite]: {
-        token: legacyToken,
-        baseUrl: SITE_BASE_URLS[legacySite],
-      },
-    },
-  };
-}
-
-async function writeConfig(config: Config): Promise<void> {
-  await fs.ensureFile(CONFIG_PATH);
-  await fs.writeJson(CONFIG_PATH, config, { spaces: 2 });
-}
-
-async function loadConfig(options: LoadConfigOptions = {}): Promise<LoadedConfig> {
-  const envToken = process.env.DIRS_TOKEN;
-  const envBaseUrl = process.env.DIRS_BASE_URL;
-  const requestedSite = options.site ? normalizeSite(options.site) : undefined;
-  const fileConfig = await readConfigFile();
-
-  const site = requestedSite ?? fileConfig?.currentSite ?? getSiteFromBaseUrl(envBaseUrl);
-  const siteFromFile = fileConfig?.sites?.[site];
-
-  const token = siteFromFile?.token || envToken || '';
-  const baseUrl = normalizeBaseUrl(siteFromFile?.baseUrl || envBaseUrl || SITE_BASE_URLS[site]);
-
-  if (!token) {
-    throw new CliError(
-      `No token configured for ${site}. Run 'ship login --site ${site}' first or set DIRS_TOKEN.`,
-      EXIT_CODES.AUTH_ERROR,
-    );
-  }
-
-  return { site, token, baseUrl };
-}
 
 function tryOpen(command: string, args: string[]): boolean {
   try {
@@ -380,25 +232,6 @@ function validateUrl(input: string): string {
   return parsed.toString();
 }
 
-async function saveSiteConfig(site: SupportedSite, token: string): Promise<void> {
-  const existing = (await readConfigFile()) ?? {
-    currentSite: site,
-    sites: {},
-  };
-
-  const nextConfig: Config = {
-    currentSite: site,
-    sites: {
-      ...existing.sites,
-      [site]: {
-        token,
-        baseUrl: SITE_BASE_URLS[site],
-      },
-    },
-  };
-
-  await writeConfig(nextConfig);
-}
 
 async function promptForSite(): Promise<SupportedSite> {
   const inq = (inquirer as unknown as { createPromptModule: () => (questions: unknown[]) => Promise<{ site: SupportedSite }> }).createPromptModule();
@@ -717,54 +550,8 @@ async function httpPost(
   throw new CliError('Request failed after retries.', EXIT_CODES.NETWORK_ERROR);
 }
 
-function printJson(value: unknown): void {
-  console.log(JSON.stringify(value, null, 2));
-}
 
-function printResult(result: HttpResponse, options: CommandOutputOptions): void {
-  if (options.json) {
-    printJson({ success: true, status: result.status, data: result.data });
-    return;
-  }
 
-  if (options.quiet) {
-    if (typeof result.data === 'string') {
-      console.log(result.data);
-      return;
-    }
-
-    printJson(result.data);
-    return;
-  }
-
-  console.log(`Status: ${result.status}`);
-  console.log('Response:', JSON.stringify(result.data, null, 2));
-}
-
-function printCommandError(error: unknown, options: CommandOutputOptions): never {
-  if (options.json) {
-    const exitCode = error instanceof CliError ? error.exitCode : EXIT_CODES.GENERAL_ERROR;
-    const payload: Record<string, unknown> = {
-      success: false,
-      error: getErrorMessage(error),
-      exitCode,
-    };
-
-    if (error instanceof HttpError) {
-      payload.status = error.status;
-      payload.data = error.data;
-    }
-
-    printJson(payload);
-  } else {
-    console.error(`❌ Error: ${getErrorMessage(error)}`);
-    if (error instanceof HttpError && error.data) {
-      console.error(JSON.stringify(error.data, null, 2));
-    }
-  }
-
-  process.exit(error instanceof CliError ? error.exitCode : EXIT_CODES.GENERAL_ERROR);
-}
 
 async function showVersion(options: { latest?: boolean; json?: boolean }) {
   try {
