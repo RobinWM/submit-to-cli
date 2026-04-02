@@ -2,7 +2,6 @@
 set -e
 
 REPO_URL="https://github.com/RobinWM/submit-dir-cli.git"
-INSTALL_DIR="${INSTALL_DIR:-$HOME/.submit-dir/bin}"
 TEMP_DIR="$(mktemp -d)"
 SHELL_RC="$HOME/.bashrc"
 
@@ -24,38 +23,35 @@ INSTALLED=0
 if command -v curl &>/dev/null; then
   if curl -sfL "$RELEASE_URL" --head &>/dev/null; then
     echo "Downloading binary for $OS/$ARCH..."
-    mkdir -p "$INSTALL_DIR"
-    curl -sfL "$RELEASE_URL" -o "$INSTALL_DIR/submit-dir"
-    chmod +x "$INSTALL_DIR/submit-dir"
-    INSTALLED=1
+    curl -sfL "$RELEASE_URL" -o /tmp/submit-dir
+    chmod +x /tmp/submit-dir
+    /tmp/submit-dir --version &>/dev/null && INSTALLED=1 && echo "✅ Binary installed"
   fi
 elif command -v wget &>/dev/null; then
   if wget -q --spider "$RELEASE_URL" 2>/dev/null; then
     echo "Downloading binary for $OS/$ARCH..."
-    mkdir -p "$INSTALL_DIR"
-    wget -q "$RELEASE_URL" -O "$INSTALL_DIR/submit-dir"
-    chmod +x "$INSTALL_DIR/submit-dir"
-    INSTALLED=1
+    wget -q "$RELEASE_URL" -O /tmp/submit-dir
+    chmod +x /tmp/submit-dir
+    /tmp/submit-dir --version &>/dev/null && INSTALLED=1 && echo "✅ Binary installed"
   fi
 fi
 
-# Fall back to cloning repo
+# Fall back to npm global install
 if [ "$INSTALLED" = "0" ]; then
-  echo "No pre-built binary for $OS/$ARCH. Cloning repository..."
-  if ! command -v git &>/dev/null; then
-    echo "Error: git is required to install from source"
-    exit 1
-  fi
+  echo "Installing via npm..."
   git clone --depth=1 "$REPO_URL" "$TEMP_DIR/repo"
-  mkdir -p "$INSTALL_DIR"
-  cp "$TEMP_DIR/repo/dist/index.js" "$INSTALL_DIR/submit-dir"
-  chmod +x "$INSTALL_DIR/submit-dir"
+  cd "$TEMP_DIR/repo"
+  npm install
+  npm pack
+  npm install -g ./submit-dir-cli-*.tgz
+  cd -
   rm -rf "$TEMP_DIR"
-  echo "✅ Installed to $INSTALL_DIR/submit-dir"
+  INSTALLED=1
+  echo "✅ Installed via npm"
 fi
 
 # Add to PATH
-if [ -f "$SHELL_RC" ] && ! grep -q "\.submit-dir/bin" "$SHELL_RC"; then
+if [ -f "$SHELL_RC" ] && ! grep -q "\.submit-dir/bin\|submit-dir" "$SHELL_RC"; then
   echo "" >> "$SHELL_RC"
   echo "# submit-dir" >> "$SHELL_RC"
   echo 'export PATH="$HOME/.submit-dir/bin:$PATH"' >> "$SHELL_RC"
