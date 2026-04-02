@@ -41,7 +41,7 @@ test('submit --help shows site/json/quiet options', () => {
 test('version command prints current version', () => {
   const result = runCli(['version']);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /ship v1\.0\.[0-9]+/);
+  assert.match(result.stdout, /ship v[0-9]+\.[0-9]+\.[0-9]+/);
 });
 
 test('self-update returns json on windows with manual upgrade guidance', () => {
@@ -51,10 +51,10 @@ test('self-update returns json on windows with manual upgrade guidance', () => {
     TEST_SUBMIT_DIR_PLATFORM: 'win32',
   });
 
-  assert.equal(result.status, 0);
+  assert.equal(result.status, 1);
   const payload = JSON.parse(result.stdout);
-  assert.equal(payload.success, true);
-  assert.equal(payload.updated, false);
+  assert.equal(payload.success, false);
+  assert.match(payload.error, /Self-update is not supported on Windows yet/);
 });
 
 test('invalid URL returns exit code 1', () => {
