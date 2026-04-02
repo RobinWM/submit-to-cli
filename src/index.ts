@@ -187,22 +187,32 @@ async function loadConfig(options: LoadConfigOptions = {}): Promise<LoadedConfig
   return { site, token, baseUrl };
 }
 
+function tryOpen(command: string, args: string[]): boolean {
+  try {
+    execFileSync(command, args, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function openBrowser(url: string) {
   const platform = process.platform;
 
   if (platform === 'darwin') {
-    execFileSync('open', [url], { stdio: 'ignore' });
-    return;
+    if (tryOpen('open', [url])) return;
+    throw new CliError('Failed to open browser with macOS open command.');
   }
 
   if (platform === 'linux') {
-    execFileSync('xdg-open', [url], { stdio: 'ignore' });
-    return;
+    if (tryOpen('xdg-open', [url])) return;
+    throw new CliError('Failed to open browser with xdg-open.');
   }
 
   if (platform === 'win32') {
-    execFileSync('cmd', ['/c', 'start', '', url], { stdio: 'ignore' });
-    return;
+    if (tryOpen('rundll32', ['url.dll,FileProtocolHandler', url])) return;
+    if (tryOpen('cmd', ['/c', 'start', '', url])) return;
+    throw new CliError('Failed to open browser on Windows. Try opening the login URL manually.');
   }
 
   throw new CliError(`Unsupported platform: ${platform}`);
@@ -351,7 +361,14 @@ async function login(options: { site?: string }) {
   console.log(`\n🔐 Opening browser to login to ${site}...`);
   console.log(`   Waiting for callback on localhost:${port}\n`);
 
-  openBrowser(authUrl);
+  try {
+    openBrowser(authUrl);
+  } catch (error: unknown) {
+    console.error(`\n❌ Failed to open browser automatically.`);
+    console.error(`Open this URL manually:`);
+    console.error(authUrl);
+    process.exit(error instanceof CliError ? error.exitCode : EXIT_CODES.AUTH_ERROR);
+  }
 
   try {
     const { token } = await waitForCallback(port, site, state);
