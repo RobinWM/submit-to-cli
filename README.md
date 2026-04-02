@@ -5,7 +5,7 @@ CLI tool for submitting URLs to [aidirs.org](https://aidirs.org) and [backlinkdi
 ## Installation
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/RobinWM/submit-dir-cli/main/install.sh)
+curl -fsSL https://raw.githubusercontent.com/RobinWM/submit-dir-cli/main/install.sh | bash
 ```
 
 Or from source:

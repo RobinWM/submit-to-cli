@@ -5,7 +5,7 @@
 ## 安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/RobinWM/submit-dir-cli/main/install.sh)
+curl -fsSL https://raw.githubusercontent.com/RobinWM/submit-dir-cli/main/install.sh | bash
 ```
 
 或从源码安装：
