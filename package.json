@@ -1,5 +1,5 @@
 {
-  "name": "submit-dir-cli",
+  "name": "submit-dir",
   "version": "1.0.0",
   "description": "CLI tool for submitting URLs to aidirs.org",
   "main": "dist/index.js",
