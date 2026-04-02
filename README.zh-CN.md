@@ -5,13 +5,13 @@
 ## 安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/RobinWM/submit-dir/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/RobinWM/submit-dir-cli/main/install.sh)
 ```
 
 或从源码安装：
 
 ```bash
-git clone https://github.com/RobinWM/submit-dir.git
+git clone https://github.com/RobinWM/submit-dir-cli.git
 cd submit-dir
 bash install.sh
 ```
