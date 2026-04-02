@@ -38,6 +38,25 @@ test('submit --help shows site/json/quiet options', () => {
   assert.match(output, /--quiet/);
 });
 
+test('version command prints current version', () => {
+  const result = runCli(['version']);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /submit-dir v1\.0\.1/);
+});
+
+test('self-update returns json on windows with manual upgrade guidance', () => {
+  const result = runCli(['self-update', '--json'], {
+    TEST_SUBMIT_DIR_LATEST_VERSION: '1.0.2',
+    TEST_SUBMIT_DIR_DOWNLOAD_URL: 'https://example.com/fake-binary',
+    TEST_SUBMIT_DIR_PLATFORM: 'win32',
+  });
+
+  assert.equal(result.status, 1);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.success, false);
+  assert.match(payload.error, /Self-update is not supported on Windows yet/);
+});
+
 test('invalid URL returns exit code 1', () => {
   const result = runCli(['submit', 'not-a-url']);
 
@@ -68,6 +87,7 @@ test('legacy config is read for existing users', () => {
     env: {
       ...process.env,
       HOME: tempHome,
+      TEST_SUBMIT_DIR_SKIP_UPDATE_CHECK: '1',
     },
     encoding: 'utf8',
   });

@@ -9,6 +9,7 @@ import { execFileSync } from 'child_process';
 import { randomBytes } from 'crypto';
 import inquirer from 'inquirer';
 
+const CLI_VERSION = '1.0.1';
 const DEFAULT_SITE = 'aidirs.org';
 const SUPPORTED_SITES = ['aidirs.org', 'backlinkdirs.com'] as const;
 type SupportedSite = (typeof SUPPORTED_SITES)[number];
@@ -23,6 +24,13 @@ const SITE_AUTH_URLS: Record<SupportedSite, string> = {
   'backlinkdirs.com': 'https://backlinkdirs.com/auth/login',
 };
 
+const RELEASE_REPO = 'RobinWM/submit-dir-cli';
+const RELEASE_API_URL = `https://api.github.com/repos/${RELEASE_REPO}/releases/latest`;
+const UPDATE_CHECK_PATH = path.join(process.env.HOME || '', '.config', 'submit-dir', 'update-check.json');
+const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 15_000;
+const MAX_RETRIES = 2;
+
 const EXIT_CODES = {
   GENERAL_ERROR: 1,
   AUTH_ERROR: 2,
@@ -31,8 +39,6 @@ const EXIT_CODES = {
 } as const;
 
 const CONFIG_PATH = path.join(process.env.HOME || '', '.config', 'submit-dir', 'config.json');
-const REQUEST_TIMEOUT_MS = 15_000;
-const MAX_RETRIES = 2;
 
 interface LegacyConfig {
   DIRS_TOKEN?: string;
@@ -67,6 +73,23 @@ interface HttpResponse<T = unknown> {
 interface CommandOutputOptions {
   json?: boolean;
   quiet?: boolean;
+}
+
+interface UpdateCheckCache {
+  checkedAt: string;
+  latestVersion: string;
+  downloadUrl?: string;
+}
+
+interface ReleaseAsset {
+  name: string;
+  browser_download_url: string;
+}
+
+interface LatestReleaseInfo {
+  version: string;
+  downloadUrl?: string;
+  assets: ReleaseAsset[];
 }
 
 class CliError extends Error {
@@ -127,6 +150,49 @@ function getSiteFromBaseUrl(baseUrl?: string): SupportedSite {
   const normalized = normalizeBaseUrl(baseUrl);
   const matchedEntry = Object.entries(SITE_BASE_URLS).find(([, value]) => value === normalized);
   return (matchedEntry?.[0] as SupportedSite | undefined) ?? DEFAULT_SITE;
+}
+
+function compareVersions(left: string, right: string): number {
+  const parse = (value: string) => value.replace(/^v/, '').split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const leftParts = parse(left);
+  const rightParts = parse(right);
+  const maxLength = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const leftValue = leftParts[index] ?? 0;
+    const rightValue = rightParts[index] ?? 0;
+    if (leftValue > rightValue) return 1;
+    if (leftValue < rightValue) return -1;
+  }
+
+  return 0;
+}
+
+function detectPlatformAssetName(): string | null {
+  const platform = process.env.TEST_SUBMIT_DIR_PLATFORM || process.platform;
+  const arch = process.env.TEST_SUBMIT_DIR_ARCH || process.arch;
+
+  if (platform === 'linux') {
+    if (arch === 'x64') return 'submit-dir-linux-x64';
+    if (arch === 'arm64') return 'submit-dir-linux-arm64';
+  }
+
+  if (platform === 'darwin') {
+    if (arch === 'x64') return 'submit-dir-darwin-x64';
+    if (arch === 'arm64') return 'submit-dir-darwin-arm64';
+  }
+
+  return null;
+}
+
+function getExecutablePath(): string {
+  return fs.realpathSync(process.argv[1]);
+}
+
+function getReleaseAssetUrl(assets: ReleaseAsset[]): string | undefined {
+  const assetName = detectPlatformAssetName();
+  if (!assetName) return undefined;
+  return assets.find((asset) => asset.name === assetName)?.browser_download_url;
 }
 
 async function readConfigFile(): Promise<Config | null> {
@@ -348,7 +414,197 @@ async function promptForSite(): Promise<SupportedSite> {
   return site;
 }
 
+async function httpGetJson<T = unknown>(urlString: string): Promise<T> {
+  const url = new URL(urlString);
+  const transport = url.protocol === 'https:' ? https : http;
+
+  return new Promise<T>((resolve, reject) => {
+    const req = transport.request(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        path: `${url.pathname}${url.search}`,
+        method: 'GET',
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': `submit-dir/${CLI_VERSION}`,
+        },
+      },
+      (res) => {
+        let responseBody = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          responseBody += chunk;
+        });
+        res.on('end', () => {
+          const parsed = parseJsonSafely(responseBody);
+          const status = res.statusCode ?? 500;
+
+          if (status < 200 || status >= 300) {
+            reject(new HttpError(`Request failed with status ${status}`, status, parsed));
+            return;
+          }
+
+          resolve(parsed as T);
+        });
+      },
+    );
+
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new CliError(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, EXIT_CODES.NETWORK_ERROR));
+    });
+
+    req.on('error', (error) => {
+      reject(
+        error instanceof CliError
+          ? error
+          : new CliError(`Network request failed: ${getErrorMessage(error)}`, EXIT_CODES.NETWORK_ERROR),
+      );
+    });
+
+    req.end();
+  });
+}
+
+async function downloadToFile(urlString: string, destination: string): Promise<void> {
+  const url = new URL(urlString);
+  const transport = url.protocol === 'https:' ? https : http;
+
+  await fs.ensureDir(path.dirname(destination));
+
+  return new Promise<void>((resolve, reject) => {
+    const fileStream = fs.createWriteStream(destination, { mode: 0o755 });
+
+    const req = transport.get(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        path: `${url.pathname}${url.search}`,
+        headers: {
+          'User-Agent': `submit-dir/${CLI_VERSION}`,
+        },
+      },
+      (res) => {
+        if ((res.statusCode ?? 500) >= 300 && (res.statusCode ?? 500) < 400 && res.headers.location) {
+          fileStream.close();
+          fs.remove(destination).catch(() => undefined).finally(() => {
+            downloadToFile(res.headers.location as string, destination).then(resolve).catch(reject);
+          });
+          return;
+        }
+
+        if ((res.statusCode ?? 500) < 200 || (res.statusCode ?? 500) >= 300) {
+          fileStream.close();
+          fs.remove(destination).catch(() => undefined).finally(() => {
+            reject(new CliError(`Download failed with status ${res.statusCode ?? 500}`, EXIT_CODES.NETWORK_ERROR));
+          });
+          return;
+        }
+
+        res.pipe(fileStream);
+        fileStream.on('finish', () => {
+          fileStream.close();
+          resolve();
+        });
+      },
+    );
+
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new CliError(`Download timed out after ${REQUEST_TIMEOUT_MS / 1000}s`, EXIT_CODES.NETWORK_ERROR));
+    });
+
+    req.on('error', (error) => {
+      fileStream.close();
+      fs.remove(destination).catch(() => undefined).finally(() => {
+        reject(
+          error instanceof CliError
+            ? error
+            : new CliError(`Download failed: ${getErrorMessage(error)}`, EXIT_CODES.NETWORK_ERROR),
+        );
+      });
+    });
+  });
+}
+
+async function fetchLatestReleaseInfo(): Promise<LatestReleaseInfo> {
+  if (process.env.TEST_SUBMIT_DIR_LATEST_VERSION) {
+    return {
+      version: process.env.TEST_SUBMIT_DIR_LATEST_VERSION,
+      downloadUrl: process.env.TEST_SUBMIT_DIR_DOWNLOAD_URL,
+      assets: [],
+    };
+  }
+
+  const response = await httpGetJson<{ tag_name: string; assets?: ReleaseAsset[] }>(RELEASE_API_URL);
+  const version = response.tag_name.replace(/^v/, '');
+  const assets = response.assets ?? [];
+  return {
+    version,
+    assets,
+    downloadUrl: getReleaseAssetUrl(assets),
+  };
+}
+
+async function readUpdateCheckCache(): Promise<UpdateCheckCache | null> {
+  if (!(await fs.pathExists(UPDATE_CHECK_PATH))) {
+    return null;
+  }
+
+  try {
+    return await fs.readJson(UPDATE_CHECK_PATH) as UpdateCheckCache;
+  } catch {
+    return null;
+  }
+}
+
+async function writeUpdateCheckCache(cache: UpdateCheckCache): Promise<void> {
+  await fs.ensureFile(UPDATE_CHECK_PATH);
+  await fs.writeJson(UPDATE_CHECK_PATH, cache, { spaces: 2 });
+}
+
+async function getLatestReleaseInfo(options: { useCache?: boolean } = {}): Promise<LatestReleaseInfo> {
+  const useCache = options.useCache !== false;
+  if (useCache) {
+    const cached = await readUpdateCheckCache();
+    if (cached) {
+      const ageMs = Date.now() - new Date(cached.checkedAt).getTime();
+      if (ageMs < UPDATE_CHECK_INTERVAL_MS) {
+        return {
+          version: cached.latestVersion,
+          downloadUrl: cached.downloadUrl,
+          assets: [],
+        };
+      }
+    }
+  }
+
+  const latest = await fetchLatestReleaseInfo();
+  await writeUpdateCheckCache({
+    checkedAt: new Date().toISOString(),
+    latestVersion: latest.version,
+    downloadUrl: latest.downloadUrl,
+  });
+  return latest;
+}
+
+async function maybeNotifyUpdate(): Promise<void> {
+  if (process.env.TEST_SUBMIT_DIR_SKIP_UPDATE_CHECK === '1') {
+    return;
+  }
+
+  try {
+    const latest = await getLatestReleaseInfo({ useCache: true });
+    if (compareVersions(latest.version, CLI_VERSION) > 0) {
+      console.log(`ℹ️  Update available: v${latest.version} (current v${CLI_VERSION}). Run 'submit-dir self-update'.`);
+    }
+  } catch {
+    // Ignore update check failures silently.
+  }
+}
+
 async function login(options: { site?: string }) {
+  await maybeNotifyUpdate();
+
   const site = options.site
     ? normalizeSite(options.site)
     : await promptForSite();
@@ -507,8 +763,81 @@ function printCommandError(error: unknown, options: CommandOutputOptions): never
   process.exit(error instanceof CliError ? error.exitCode : EXIT_CODES.GENERAL_ERROR);
 }
 
+async function showVersion(options: { latest?: boolean; json?: boolean }) {
+  try {
+    const payload: Record<string, unknown> = { current: CLI_VERSION };
+
+    if (options.latest) {
+      const latest = await getLatestReleaseInfo({ useCache: false });
+      payload.latest = latest.version;
+      payload.updateAvailable = compareVersions(latest.version, CLI_VERSION) > 0;
+    }
+
+    if (options.json) {
+      printJson(payload);
+      return;
+    }
+
+    console.log(`submit-dir v${CLI_VERSION}`);
+    if (options.latest && payload.latest) {
+      console.log(`latest: v${payload.latest}`);
+      if (payload.updateAvailable) {
+        console.log('update available');
+      }
+    }
+  } catch (error: unknown) {
+    printCommandError(error, { json: options.json });
+  }
+}
+
+async function selfUpdate(options: { json?: boolean }) {
+  try {
+    const latest = await getLatestReleaseInfo({ useCache: false });
+    const runtimePlatform = process.env.TEST_SUBMIT_DIR_PLATFORM || process.platform;
+
+    if (compareVersions(latest.version, CLI_VERSION) <= 0) {
+      if (options.json) {
+        printJson({ success: true, updated: false, current: CLI_VERSION, latest: latest.version });
+      } else {
+        console.log(`Already up to date (v${CLI_VERSION}).`);
+      }
+      return;
+    }
+
+    if (runtimePlatform === 'win32') {
+      throw new CliError(
+        `Self-update is not supported on Windows yet. Download v${latest.version} manually from https://github.com/${RELEASE_REPO}/releases/latest`,
+      );
+    }
+
+    if (!latest.downloadUrl) {
+      throw new CliError(`No downloadable asset found for ${process.platform}/${process.arch}.`);
+    }
+
+    const executablePath = getExecutablePath();
+    const tempPath = `${executablePath}.download`;
+    await downloadToFile(latest.downloadUrl, tempPath);
+    await fs.chmod(tempPath, 0o755);
+    await fs.move(tempPath, executablePath, { overwrite: true });
+    await writeUpdateCheckCache({
+      checkedAt: new Date().toISOString(),
+      latestVersion: latest.version,
+      downloadUrl: latest.downloadUrl,
+    });
+
+    if (options.json) {
+      printJson({ success: true, updated: true, previous: CLI_VERSION, current: latest.version });
+    } else {
+      console.log(`Updated submit-dir from v${CLI_VERSION} to v${latest.version}.`);
+    }
+  } catch (error: unknown) {
+    printCommandError(error, { json: options.json });
+  }
+}
+
 async function submit(targetUrl: string, options: { site?: string; json?: boolean; quiet?: boolean }) {
   try {
+    await maybeNotifyUpdate();
     const validUrl = validateUrl(targetUrl);
     const config = await loadConfig({ site: options.site });
 
@@ -525,6 +854,7 @@ async function submit(targetUrl: string, options: { site?: string; json?: boolea
 
 async function fetchPreview(targetUrl: string, options: { site?: string; json?: boolean; quiet?: boolean }) {
   try {
+    await maybeNotifyUpdate();
     const validUrl = validateUrl(targetUrl);
     const config = await loadConfig({ site: options.site });
 
@@ -544,7 +874,7 @@ const program = new Command();
 program
   .name('submit-dir')
   .description('CLI tool for submitting URLs to aidirs.org and backlinkdirs.com')
-  .version('1.0.0');
+  .version(CLI_VERSION);
 
 program
   .command('login')
@@ -567,6 +897,19 @@ program
   .option('--json', 'Print machine-readable JSON output')
   .option('--quiet', 'Print only response payload')
   .action(fetchPreview);
+
+program
+  .command('version')
+  .description('Show current version information')
+  .option('--latest', 'Fetch latest release information from GitHub')
+  .option('--json', 'Print machine-readable JSON output')
+  .action(showVersion);
+
+program
+  .command('self-update')
+  .description('Download and install the latest release for this platform')
+  .option('--json', 'Print machine-readable JSON output')
+  .action(selfUpdate);
 
 program.parse(process.argv);
 
