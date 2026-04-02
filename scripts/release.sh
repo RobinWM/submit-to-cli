@@ -43,12 +43,13 @@ TAG_NAME="$NEW_VERSION"
 VERSION_NO_V="${TAG_NAME#v}"
 
 # Keep manual workflow default aligned with latest version.
-python3 - <<PY
+TAG_NAME_ENV="$TAG_NAME" python3 - <<'PY'
 from pathlib import Path
+import os, re
 wf = Path('.github/workflows/release.yml')
 s = wf.read_text()
-import re
-s = re.sub(r'default: v[0-9]+\.[0-9]+\.[0-9]+', f'default: {TAG_NAME}', s)
+tag = os.environ['TAG_NAME_ENV']
+s = re.sub(r'default: v[0-9]+\.[0-9]+\.[0-9]+', f'default: {tag}', s)
 wf.write_text(s)
 PY
 
