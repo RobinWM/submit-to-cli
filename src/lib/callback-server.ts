@@ -47,7 +47,6 @@ export function waitForCallback(
         res.end(`<html><body style="font-family:sans-serif;padding:40px;text-align:center;">
           <h2 style="color:#22c55e;">✅ Login successful</h2>
           <p style="color:#666;">Token saved. You can close this window.</p>
-          <script>window.close()</script>
         </body></html>`);
         finish(() => resolve({ token, site }));
         return;
