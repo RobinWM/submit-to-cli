@@ -124,13 +124,17 @@ Legacy single-site config is migrated automatically on next login/use.
 
 ## Environment Variables
 
-Config file takes priority. Environment variables serve as fallback for the active or overridden site:
+Config file is the recommended approach for multi-site usage.
+
+Environment variables are still supported, but they work best as a single-site override/fallback for the current command:
 
 ```bash
 export DIRS_TOKEN="your-token-here"
 export DIRS_BASE_URL="https://aidirs.org"
 ship submit https://example.com
 ```
+
+When using environment variables, `DIRS_TOKEN` is applied to the site identified by `DIRS_BASE_URL` (or the default site if `DIRS_BASE_URL` is omitted). For managing multiple sites long-term, use `ship login` so tokens are stored per site in the config file.
 
 ## Development
 

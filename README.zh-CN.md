@@ -119,13 +119,17 @@ ship --help
 
 ## 环境变量
 
-配置文件优先，环境变量作为当前站点或 `--site` 覆盖站点的备用：
+多站点场景下，**推荐使用配置文件**。
+
+环境变量仍然可用，但更适合作为**当前命令的单站点覆盖/兜底方案**：
 
 ```bash
 export DIRS_TOKEN="your-token-here"
 export DIRS_BASE_URL="https://aidirs.org"
 ship submit https://example.com
 ```
+
+使用环境变量时，`DIRS_TOKEN` 会应用到 `DIRS_BASE_URL` 指向的站点（如果未提供 `DIRS_BASE_URL`，则落到默认站点）。如果需要长期管理多个站点，建议使用 `ship login`，把 token 按站点写入配置文件。
 
 ## 开发
 
