@@ -4,6 +4,18 @@
 
 ## 安装
 
+### npm 安装
+
+```bash
+npm install -g @brenn/ship
+```
+
+安装后运行：
+
+```bash
+ship --help
+```
+
 ### macOS / Linux / WSL
 
 ```bash
@@ -119,6 +131,16 @@ ship submit https://example.com
 npm install
 npm run build
 npm test
+```
+
+## 发布到 npm
+
+```bash
+npm login
+npm run build
+npm test
+npm pack --dry-run
+npm publish
 ```
 
 发布时通过 `package.json` 的 `files` 字段控制内容，npm 包会包含 `dist/` 构建产物。

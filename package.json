@@ -1,7 +1,7 @@
 {
-  "name": "ship",
+  "name": "@brenn/ship",
   "version": "0.1.8",
-  "description": "CLI tool for submitting URLs to aidirs.org",
+  "description": "CLI for shipping, submitting, and managing site growth workflows across aidirs.org and backlinkdirs.com.",
   "main": "dist/index.js",
   "bin": {
     "ship": "./dist/index.js"
@@ -14,20 +14,39 @@
     "install.ps1",
     "install.cmd"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RobinWM/ship-cli.git"
+  },
+  "homepage": "https://github.com/RobinWM/ship-cli#readme",
+  "bugs": {
+    "url": "https://github.com/RobinWM/ship-cli/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc",
-    "build:release": "npm run build && pkg dist/index.js --targets node20-linux-x64,node20-linux-arm64,node20-macos-x64,node20-macos-arm64 --output release-assets/submit-dir",
+    "build:release": "npm run build && pkg dist/index.js --targets node20-linux-x64,node20-linux-arm64,node20-macos-x64,node20-macos-arm64 --output release-assets/ship",
     "prepublishOnly": "npm run build",
+    "prepack": "npm run build",
     "test": "npm run build && node --test tests/*.test.js",
     "release:patch": "./scripts/release.sh patch",
     "release:minor": "./scripts/release.sh minor",
     "release:major": "./scripts/release.sh major"
   },
   "keywords": [
+    "ship",
+    "cli",
+    "submission",
+    "seo",
     "aidirs",
-    "cli"
+    "backlinkdirs"
   ],
-  "author": "",
+  "author": "Brennan",
   "license": "ISC",
   "dependencies": {
     "commander": "^12.1.0",

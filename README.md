@@ -4,6 +4,18 @@ CLI tool for submitting URLs to [aidirs.org](https://aidirs.org) and [backlinkdi
 
 ## Installation
 
+### npm
+
+```bash
+npm install -g @brenn/ship
+```
+
+Then run:
+
+```bash
+ship --help
+```
+
 ### macOS / Linux / WSL
 
 ```bash
@@ -124,6 +136,16 @@ ship submit https://example.com
 npm install
 npm run build
 npm test
+```
+
+Publish to npm:
+
+```bash
+npm login
+npm run build
+npm test
+npm pack --dry-run
+npm publish
 ```
 
 Release a new version:

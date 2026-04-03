@@ -44,6 +44,13 @@ test('version command prints current version', () => {
   assert.match(result.stdout, /ship v[0-9]+\.[0-9]+\.[0-9]+/);
 });
 
+test('package metadata uses scoped npm package name while keeping ship binary', () => {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  assert.equal(packageJson.name, '@brenn/ship');
+  assert.equal(packageJson.bin.ship, './dist/index.js');
+  assert.equal(packageJson.publishConfig.access, 'public');
+});
+
 test('self-update returns json on windows with manual upgrade guidance', () => {
   const result = runCli(['self-update', '--json'], {
     TEST_SUBMIT_DIR_LATEST_VERSION: '1.0.2',
