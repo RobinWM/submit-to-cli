@@ -4,6 +4,8 @@ CLI tool for submitting URLs to [aidirs.org](https://aidirs.org) and [backlinkdi
 
 ## Installation
 
+**Recommended:** install from npm for the fastest setup and easiest updates.
+
 ### npm
 
 ```bash
@@ -16,19 +18,19 @@ Then run:
 ship --help
 ```
 
-### macOS / Linux / WSL
+### Alternative: macOS / Linux / WSL installer
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RobinWM/ship-cli/main/install.sh | bash
 ```
 
-### Windows PowerShell
+### Alternative: Windows PowerShell installer
 
 ```powershell
 irm https://raw.githubusercontent.com/RobinWM/ship-cli/main/install.ps1 | iex
 ```
 
-### Windows CMD
+### Alternative: Windows CMD installer
 
 ```cmd
 curl -fsSL https://raw.githubusercontent.com/RobinWM/ship-cli/main/install.cmd -o install.cmd && install.cmd && del install.cmd

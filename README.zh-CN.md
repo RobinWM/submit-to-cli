@@ -4,6 +4,8 @@
 
 ## 安装
 
+**优选：** 通过 npm 安装，最快也最方便后续升级。
+
 ### npm 安装
 
 ```bash
@@ -16,19 +18,19 @@ npm install -g @brenn/ship
 ship --help
 ```
 
-### macOS / Linux / WSL
+### 备选：macOS / Linux / WSL 安装脚本
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/RobinWM/ship-cli/main/install.sh | bash
 ```
 
-### Windows PowerShell
+### 备选：Windows PowerShell 安装脚本
 
 ```powershell
 irm https://raw.githubusercontent.com/RobinWM/ship-cli/main/install.ps1 | iex
 ```
 
-### Windows CMD
+### 备选：Windows CMD 安装脚本
 
 ```cmd
 curl -fsSL https://raw.githubusercontent.com/RobinWM/ship-cli/main/install.cmd -o install.cmd && install.cmd && del install.cmd
