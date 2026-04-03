@@ -61,16 +61,20 @@ jobs:
         run: npm ci
 
       - name: Build standalone binary
+        shell: bash
         run: |
           npm run build
           mkdir -p release-assets
           npx pkg dist/index.js --targets ${{ matrix.target }} --output release-assets/${{ matrix.asset_name }}
+          if [ "${{ matrix.asset_name }}" != "${{ matrix.upload_name }}" ]; then
+            cp "release-assets/${{ matrix.asset_name }}" "release-assets/${{ matrix.upload_name }}"
+          fi
 
       - name: Upload binary to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        run: gh release upload "$RELEASE_TAG" release-assets/${{ matrix.upload_name }} --repo "$RELEASE_REPO" --clobber
+        run: gh release upload "$RELEASE_TAG" "release-assets/${{ matrix.upload_name }}" --repo "$RELEASE_REPO" --clobber
 
   upload-package:
     runs-on: ubuntu-latest
@@ -91,6 +95,7 @@ jobs:
         run: npm ci
 
       - name: Build package tarballs
+        shell: bash
         run: |
           npm run build
           PACKAGE_TGZ="$(npm pack | tail -n 1)"
@@ -101,4 +106,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
-        run: gh release upload "$RELEASE_TAG" "$PACKAGE_TGZ" ship-latest.tgz --repo "$RELEASE_REPO" --clobber
+        run: |
+          gh release upload "$RELEASE_TAG" "$PACKAGE_TGZ" --repo "$RELEASE_REPO" --clobber
+          gh release upload "$RELEASE_TAG" ship-latest.tgz --repo "$RELEASE_REPO" --clobber
